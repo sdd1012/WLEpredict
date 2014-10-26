@@ -1,0 +1,137 @@
+---
+title: "Analysis on Weight Lifting Exercises data"
+author: "sdd1012"
+date: "Saturday, October 21, 2014"
+output:
+  html_document:
+    keep_md: yes
+---
+
+## Introduction
+The project analyses the **Weight Lifting Exercises Dataset** , which is a data frame with 19622 observations with 160 variables. The "classe" variable represents manner in which the participants did the exercise. See **Reference** section below.
+The goal of the project is to build model to predict the manner, the "classe", with out of sample accuracy higher than 95%.
+
+
+## Approach
+1.      The **caret** R package with rpart and randomForest are installed and loaded for analysis using tree and random forest. 
+
+```{r loadpackages, echo=FALSE, message=F, warning=F, results='hide'}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(rpart)
+```
+
+2.      The features of dataset is cleaned for columns having more than 50% NA value or blank value. The first 7 variables are also removed as they are ID, timestamp or not measurement.
+
+3.      The dataset pml_training is partitioned into train/test in 70/30 ratio.
+
+```{r readclean, cache=TRUE, echo=FALSE, results='asis'}
+pml_training<- read.csv("pml-training.csv")
+pml_testing<- read.csv("pml-testing.csv")
+cols<- names(pml_training)
+## Selecting columns that contain NA values < 50% of obs
+selCols<- NULL
+for(col in cols){
+        if(sum(is.na(pml_training[,col]))/nrow(pml_training)<.5) {
+                selCols<- c(selCols,col)
+        }
+}
+
+## Selecting columns that contain blank values < 50% of obs
+cols<- selCols
+selCols<- NULL
+for(col in cols){
+        if(sum(pml_training[,col]=="")/nrow(pml_training)<.5) {
+                selCols<- c(selCols,col)
+        }
+}
+## Separating the pml_training into a training and a test set as 70-30
+set.seed(32343);
+inTrain<- createDataPartition(y=pml_training$classe, p=0.7, list=FALSE);
+training<- pml_training[inTrain,selCols];
+testing<- pml_training[-inTrain,selCols];
+## Removing first 7 columns as they are ID, timestamp or not measurement
+training<- training[,-c(1:7)];
+testing<- testing[,-c(1:7)];
+# removing pml_training
+remove(pml_training);
+sprintf("The no. of features chosen for tree = %i", length(training)-1)
+```
+
+
+4.      The train set is trained using **rpart**, and the test set is evaluated for out of sample accuracy.
+
+```{r tree, cache=TRUE, echo=FALSE, results='asis'}
+
+modTree<- train(classe~.,data=training, method="rpart")
+
+# calculating in sample
+pred_train_tree<- predict(modTree, newdata=training[,-53])
+true_train_tree<- sum(training$classe==pred_train_tree)
+tree_insample<- (true_train_tree/length(pred_train_tree))*100
+sprintf("In Sample accuracy percentage of tree model = %.2f", tree_insample)
+
+# calculating out of sample
+pred_tree<- predict(modTree, newdata=testing[,-53])
+true_values<- sum(testing$classe==pred_tree)
+tree_rate<- (true_values/length(pred_tree))*100
+sprintf("Out Of Sample accuracy percentage of tree model = %.2f", tree_rate)
+
+```
+
+
+5.      The importance of the variables are further studied for the tree model as the accuracy is significantly low. The variables with very low importance are removed, so the data can be used for random forest effectively.  
+
+
+```{r varimp, cache=TRUE, echo=FALSE, tidy=TRUE}
+varImp(modTree)
+vi<- varImp(modTree)
+allCols<- row.names(vi$importance)
+selectCols<- allCols[vi$importance[,"Overall"]>2]
+```
+
+6.      The train set is trained using **rf**, and the test set is evaluated for out of sample accuracy
+
+```{r randomForest, cache=TRUE, echo=FALSE, tidy=TRUE}
+newTrain<- training[,c(selectCols, "classe")];
+newTest<- testing[, c(selectCols, "classe")];
+modRf<- train(classe~.,data=newTrain,method="rf")
+
+# Calculating in sample
+pred_rf_train<- predict(modRf, newdata=newTrain[,-16])
+true_train_rf<- sum(newTrain$classe==pred_rf_train)
+rf_insample<- (true_train_rf/length(pred_rf_train))*100
+sprintf("In Sample accuracy percentage of RF model = %.2f", rf_insample)
+
+# Calculating out of sample
+pred_rf<- predict(modRf, newdata=newTest[,-16])
+true_rf<- sum(newTest$classe==pred_rf)
+rf_rate<- (true_rf/length(pred_rf))*100
+sprintf("Out Of Sample accuracy percentage of RF model = %.2f", rf_rate)
+```
+
+
+7.    Some metrics of the random forest model with test set follows:  
+
+```{r matrix, echo=FALSE, tidy=TRUE}
+cm<- confusionMatrix(pred_rf, newTest$classe)
+
+cm$table
+
+cm$byClass
+```
+
+
+### Conclusion
+The random forest model is promising and a model with following variables in the order of importance can be chosen.
+
+```{r impRf, echo=FALSE, tidy=TRUE}
+varImp(modRf)
+```
+
+
+#### Reference:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201) Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
